@@ -4,34 +4,62 @@
 // const express = require('express');
 // const mongoose = require('mongoose');
 // const cors = require('cors');
-// const fs = require('fs');
+// const multer = require('multer');
 // const path = require('path');
+// const fs = require('fs');
 
 // const app = express();
+// const PORT = process.env.PORT || 5000;
 
 // app.use(cors());
 // app.use(express.json());
-// app.use('/uploads', express.static('uploads'));
+// app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// const PORT = process.env.PORT || 5000;
+// // MongoDB Connection
+// mongoose.connect(process.env.MONGO_URI, {
+//   useNewUrlParser: true,
+//   useUnifiedTopology: true
+// })
+// .then(() => console.log('MongoDB connected'))
+// .catch(err => console.log(err));
 
-// // Connect MongoDB
-// mongoose.connect(process.env.MONGO_URI)
-//   .then(() => console.log('MongoDB connected'))
-//   .catch(err => console.log(err));
-
-// // Create uploads folder if it doesn't exist
+// // Create uploads directory if it doesn't exist
 // if (!fs.existsSync('./uploads')) {
 //   fs.mkdirSync('./uploads');
 // }
 
-// // Routes
-// const submitRoute = require('./routes/submit');
-// app.use('/api/submit', submitRoute);
+// // Multer setup
+// const storage = multer.diskStorage({
+//   destination: (req, file, cb) => cb(null, 'uploads/'),
+//   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
+// });
+// const upload = multer({ storage });
 
+// // Model
 // const Manuscript = require('./models/Manuscript');
 
-// // Get all submissions
+// // Routes
+// app.post('/api/submit', upload.single('file'), async (req, res) => {
+//   try {
+//     const { name, email, title, abstract } = req.body;
+//     const filePath = req.file ? req.file.path : '';
+
+//     const manuscript = new Manuscript({
+//       name,
+//       email,
+//       title,
+//       abstract,
+//       filePath
+//     });
+
+//     await manuscript.save();
+//     res.status(201).json({ message: 'Submission successful' });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ error: 'Submission failed' });
+//   }
+// });
+
 // app.get('/api/manuscripts', async (req, res) => {
 //   try {
 //     const manuscripts = await Manuscript.find();
@@ -41,33 +69,16 @@
 //   }
 // });
 
-// // Get a single manuscript
-// app.get('/api/manuscripts/:id', async (req, res) => {
-//   try {
-//     const manuscript = await Manuscript.findById(req.params.id);
-//     if (!manuscript) return res.status(404).json({ error: 'Not found' });
-//     res.json(manuscript);
-//   } catch (err) {
-//     res.status(500).json({ error: 'Failed to fetch manuscript' });
-//   }
-// });
-
-// // Update a manuscript
-// app.put('/api/manuscripts/:id', async (req, res) => {
-//   try {
-//     const updated = await Manuscript.findByIdAndUpdate(req.params.id, req.body, { new: true });
-//     if (!updated) return res.status(404).json({ error: 'Not found' });
-//     res.json(updated);
-//   } catch (err) {
-//     res.status(500).json({ error: 'Failed to update manuscript' });
-//   }
-// });
-
-// // Delete a manuscript
 // app.delete('/api/manuscripts/:id', async (req, res) => {
 //   try {
-//     const deleted = await Manuscript.findByIdAndDelete(req.params.id);
-//     if (!deleted) return res.status(404).json({ error: 'Not found' });
+//     const manuscript = await Manuscript.findByIdAndDelete(req.params.id);
+//     if (!manuscript) return res.status(404).json({ error: 'Not found' });
+
+//     // Delete file from filesystem
+//     if (manuscript.filePath && fs.existsSync(manuscript.filePath)) {
+//       fs.unlinkSync(manuscript.filePath);
+//     }
+
 //     res.json({ message: 'Deleted successfully' });
 //   } catch (err) {
 //     res.status(500).json({ error: 'Failed to delete manuscript' });
@@ -77,7 +88,7 @@
 // app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 
 
-// server.js
+
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -85,51 +96,102 @@ const cors = require('cors');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
+// Middleware
 app.use(cors());
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// MongoDB Connection
+// MongoDB connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
-  useUnifiedTopology: true
+  useUnifiedTopology: true,
 })
-.then(() => console.log('MongoDB connected'))
-.catch(err => console.log(err));
+.then(() => console.log("MongoDB connected"))
+.catch((err) => console.error("MongoDB connection error:", err));
 
-// Create uploads directory if it doesn't exist
+// Models
+const User = require('./models/User');
+const Manuscript = require('./models/Manuscript');
+
+// Create uploads folder if it doesn't exist
 if (!fs.existsSync('./uploads')) {
   fs.mkdirSync('./uploads');
 }
 
-// Multer setup
+// Multer configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, 'uploads/'),
   filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`)
 });
 const upload = multer({ storage });
 
-// Model
-const Manuscript = require('./models/Manuscript');
+// JWT authentication middleware
+const authenticate = (req, res, next) => {
+  const token = req.headers['authorization'];
+  if (!token) return res.status(401).json({ error: 'Token required' });
 
-// Routes
-app.post('/api/submit', upload.single('file'), async (req, res) => {
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+// === Auth Routes ===
+app.post('/api/register', async (req, res) => {
+  const { name, email, password } = req.body;
+  if (!name || !email || !password) {
+    return res.status(400).json({ error: 'All fields are required' });
+  }
+
+  try {
+    const existing = await User.findOne({ email });
+    if (existing) return res.status(400).json({ error: 'User already exists' });
+
+    const hash = await bcrypt.hash(password, 10);
+    await User.create({ name, email, password: hash });
+    res.status(201).json({ message: 'Registered successfully' });
+  } catch (err) {
+    res.status(500).json({ error: 'Registration failed' });
+  }
+});
+
+app.post('/api/login', async (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+
+  try {
+    const user = await User.findOne({ email });
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ error: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign(
+      { id: user._id, email: user.email },
+      process.env.JWT_SECRET,
+      { expiresIn: '2h' }
+    );
+    res.json({ token });
+  } catch (err) {
+    res.status(500).json({ error: 'Login failed' });
+  }
+});
+
+// === Manuscript Routes ===
+app.post('/api/submit', authenticate, upload.single('file'), async (req, res) => {
   try {
     const { name, email, title, abstract } = req.body;
     const filePath = req.file ? req.file.path : '';
 
-    const manuscript = new Manuscript({
-      name,
-      email,
-      title,
-      abstract,
-      filePath
-    });
-
+    const manuscript = new Manuscript({ name, email, title, abstract, filePath });
     await manuscript.save();
     res.status(201).json({ message: 'Submission successful' });
   } catch (err) {
@@ -138,7 +200,7 @@ app.post('/api/submit', upload.single('file'), async (req, res) => {
   }
 });
 
-app.get('/api/manuscripts', async (req, res) => {
+app.get('/api/manuscripts', authenticate, async (req, res) => {
   try {
     const manuscripts = await Manuscript.find();
     res.json(manuscripts);
@@ -147,12 +209,11 @@ app.get('/api/manuscripts', async (req, res) => {
   }
 });
 
-app.delete('/api/manuscripts/:id', async (req, res) => {
+app.delete('/api/manuscripts/:id', authenticate, async (req, res) => {
   try {
     const manuscript = await Manuscript.findByIdAndDelete(req.params.id);
-    if (!manuscript) return res.status(404).json({ error: 'Not found' });
+    if (!manuscript) return res.status(404).json({ error: 'Manuscript not found' });
 
-    // Delete file from filesystem
     if (manuscript.filePath && fs.existsSync(manuscript.filePath)) {
       fs.unlinkSync(manuscript.filePath);
     }
@@ -163,4 +224,5 @@ app.delete('/api/manuscripts/:id', async (req, res) => {
   }
 });
 
+// === Start Server ===
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
