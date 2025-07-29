@@ -125,48 +125,7 @@ app.delete('/api/contact/:id', async (req, res) => {
 
 // ==== Auth Routes ====
 
-// app.post('/api/register', async (req, res) => {
-//   const { name, email, password } = req.body;
-//   if (!name || !email || !password) return res.status(400).json({ error: 'All fields are required' });
-
-//   try {
-//     const existing = await User.findOne({ email });
-//     if (existing) return res.status(400).json({ error: 'User already exists' });
-
-//     const hash = await bcrypt.hash(password, 10);
-//     await User.create({ name, email, password: hash });
-//     res.status(201).json({ message: 'Registered successfully' });
-//   } catch (err) {
-//     res.status(500).json({ error: 'Registration failed' });
-//   }
-// });
-
-// app.post('/api/login', async (req, res) => {
-//   const { email, password } = req.body;
-//   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-
-//   try {
-//     const user = await User.findOne({ email });
-//     if (!user || !(await bcrypt.compare(password, user.password))) {
-//       return res.status(401).json({ error: 'Invalid credentials' });
-//     }
-
-//hello
-
-//     const token = jwt.sign(
-//       { id: user._id, email: user.email },
-//       process.env.JWT_SECRET,
-//       { expiresIn: '2h' }
-//     );
-//     res.json({ token });
-//   } catch (err) {
-//     res.status(500).json({ error: 'Login failed' });
-//   }
-// });
-
-
-// ✅ Register User
-router.post('/register', async (req, res) => {
+app.post('/api/register', async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) return res.status(400).json({ error: 'All fields are required' });
 
@@ -175,15 +134,14 @@ router.post('/register', async (req, res) => {
     if (existing) return res.status(400).json({ error: 'User already exists' });
 
     const hash = await bcrypt.hash(password, 10);
-    const user = await User.create({ name, email, password: hash });
-    res.status(201).json({ message: 'Registered successfully', user });
+    await User.create({ name, email, password: hash });
+    res.status(201).json({ message: 'Registered successfully' });
   } catch (err) {
     res.status(500).json({ error: 'Registration failed' });
   }
 });
 
-// ✅ Login User
-router.post('/login', async (req, res) => {
+app.post('/api/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
@@ -198,55 +156,9 @@ router.post('/login', async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: '2h' }
     );
-    res.json({ token, user });
+    res.json({ token });
   } catch (err) {
     res.status(500).json({ error: 'Login failed' });
-  }
-});
-
-// ✅ Get All Users
-router.get('/', async (req, res) => {
-  try {
-    const users = await User.find().select('-password');
-    res.json(users);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch users' });
-  }
-});
-
-// ✅ Get One User by ID
-router.get('/:id', async (req, res) => {
-  try {
-    const user = await User.findById(req.params.id).select('-password');
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    res.json(user);
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch user' });
-  }
-});
-
-// ✅ Update User
-router.put('/:id', async (req, res) => {
-  const { name, email, password } = req.body;
-  try {
-    const updateData = { name, email };
-    if (password) {
-      updateData.password = await bcrypt.hash(password, 10);
-    }
-    const updatedUser = await User.findByIdAndUpdate(req.params.id, updateData, { new: true });
-    res.json({ message: "User updated", user: updatedUser });
-  } catch (err) {
-    res.status(500).json({ error: 'Update failed' });
-  }
-});
-
-// ✅ Delete User
-router.delete('/:id', async (req, res) => {
-  try {
-    await User.findByIdAndDelete(req.params.id);
-    res.json({ message: "User deleted" });
-  } catch (err) {
-    res.status(500).json({ error: 'Deletion failed' });
   }
 });
 
