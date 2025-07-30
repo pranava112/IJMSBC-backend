@@ -46,20 +46,41 @@ const storage = multer.diskStorage({
 const upload = multer({ storage });
 
 // JWT middleware (not used in submission route anymore)
-const authenticate = (req, res, next) => {
+// const authenticate = (req, res, next) => {
+//   const authHeader = req.headers['authorization'];
+//   if (!authHeader || !authHeader.startsWith('Bearer ')) {
+//     return res.status(401).json({ error: 'Token required' });
+//   }
+//   const token = authHeader.split(' ')[1];
+//   try {
+//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+//     req.user = decoded;
+//     next();
+//   } catch (err) {
+//     return res.status(401).json({ error: 'Invalid token' });
+//   }
+// };
+
+const authenticate = async (req, res, next) => {
   const authHeader = req.headers['authorization'];
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Token required' });
   }
+
   const token = authHeader.split(' ')[1];
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
+    const user = await User.findOne({ email: decoded.email }).select('-password');
+    if (!user) return res.status(401).json({ error: 'User not found' });
+
+    req.user = user; // Attach full user object to request
     next();
   } catch (err) {
+    console.error(err);
     return res.status(401).json({ error: 'Invalid token' });
   }
 };
+
 
 // ==== Contact Routes ====
 
@@ -162,6 +183,9 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
+
+
+
 // ==== Manuscript Routes ====
 
 app.post('/api/submit', upload.single('file'), async (req, res) => {
@@ -211,5 +235,11 @@ app.delete('/api/manuscripts/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to delete manuscript' });
   }
 });
+
+
+app.get('/api/user/profile', authenticate, async (req, res) => {
+  res.json(req.user);
+});
+
 
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
